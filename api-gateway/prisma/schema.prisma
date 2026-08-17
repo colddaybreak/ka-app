@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  name          String
+  role          Role      @default(user)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  knowledgeBases KnowledgeBase[]
+  conversations  Conversation[]
+
+  @@map("users")
+}
+
+enum Role {
+  admin
+  user
+}
+
+model KnowledgeBase {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  embeddingModel  String   @default("text-embedding-3-small") @map("embedding_model")
+  chunkStrategy   Json     @default("{\"mode\":\"recursive\",\"chunkSize\":500,\"chunkOverlap\":50}") @map("chunk_strategy")
+  retrievalConfig Json     @default("{\"topK\":5,\"similarityThreshold\":0.7,\"useRerank\":false}") @map("retrieval_config")
+  userId          String   @map("user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user       User       @relation(fields: [userId], references: [id])
+  documents  Document[]
+  conversations Conversation[]
+
+  @@map("knowledge_bases")
+}
+
+model Document {
+  id              String         @id @default(uuid())
+  knowledgeBaseId String         @map("knowledge_base_id")
+  filename        String
+  filePath        String         @map("file_path")
+  fileSize        Int            @map("file_size")
+  fileType        String         @map("file_type")
+  status          DocumentStatus @default(pending)
+  errorMessage    String?        @map("error_message")
+  chunkCount      Int            @default(0) @map("chunk_count")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  processedAt     DateTime?      @map("processed_at")
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+enum DocumentStatus {
+  pending
+  processing
+  done
+  failed
+}
+
+model Conversation {
+  id              String   @id @default(uuid())
+  title           String   @default("新对话")
+  userId          String   @map("user_id")
+  knowledgeBaseId String   @map("knowledge_base_id")
+  systemPrompt    String?  @map("system_prompt")
+  modelConfig     Json     @default("{\"model\":\"gpt-4o\",\"temperature\":0.7,\"maxTokens\":2048}") @map("model_config")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user          User          @relation(fields: [userId], references: [id])
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id])
+  messages      Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  role           MessageRole
+  content        String
+  citations      Json?
+  tokenUsage     Json?    @map("token_usage")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
