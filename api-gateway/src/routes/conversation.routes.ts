@@ -22,7 +22,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
         knowledgeBaseId,
         title: title || '新对话',
         systemPrompt: systemPrompt || null,
-        modelConfig: modelConfig || { model: 'gpt-4o', temperature: 0.7, maxTokens: 2048 },
+        modelConfig: modelConfig || { model: 'deepseek-v4-flash', temperature: 0.7, maxTokens: 4096 },
       },
     });
   });

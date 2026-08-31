@@ -30,7 +30,7 @@ flowchart LR
     GW -->|"内部转发<br/>X-Internal-Token"| AI["AI Engine<br/>FastAPI + LangChain<br/>:8000"]
     GW --> PG[("PostgreSQL + pgvector<br/>:5432")]
     AI --> PG
-    AI -->|"GPT-4o / Embeddings"| LLM["OpenAI API"]
+    AI -->|"deepseek-v4-flash / Embeddings"| LLM["阿里云百炼<br/>（DashScope）"]
 ```
 
 | 层 | 技术栈 | 职责 | 选型理由 |
@@ -58,7 +58,7 @@ flowchart LR
 | ORM | Prisma |
 | AI 后端 | Python 3.11+ + FastAPI |
 | RAG 框架 | LangChain |
-| 大语言模型 | OpenAI GPT-4o + text-embedding-3-small |
+| 大语言模型 | 阿里云百炼（DashScope）：deepseek-v4-flash + text-embedding-v4，可切换至任意 OpenAI 兼容模型 |
 | 向量存储 | PostgreSQL 16 + pgvector（HNSW 索引） |
 | 文档解析 | PyMuPDF / python-docx / BeautifulSoup |
 | 容器化 | Docker Compose |
@@ -90,7 +90,7 @@ ka-app/
 - Node.js 20 及以上，pnpm 9 及以上（`api-gateway` 通过 `devEngines` 自动切换至 v11）
 - Python 3.11 及以上
 - Docker 与 Docker Compose
-- OpenAI API Key
+- 阿里云百炼 API Key（或 OpenAI API Key）
 
 ### 第一步：启动数据库
 
@@ -135,7 +135,7 @@ cd ai-engine
 python -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env          # 必须填入 OPENAI_API_KEY
+cp .env.example .env          # 必须填入百炼 API Key（OPENAI_API_KEY 变量）
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -162,9 +162,10 @@ pnpm dev                      # 启动于 :5173，开发服务器自动代理 /a
 | api-gateway | `DATABASE_URL` | PostgreSQL 连接串 |
 | api-gateway | `JWT_SECRET` | JWT 签名密钥，生产环境必须修改 |
 | api-gateway | `INTERNAL_API_TOKEN` | 调用 AI 引擎的内部令牌 |
-| ai-engine | `OPENAI_API_KEY` | 必填，OpenAI API 密钥 |
+| ai-engine | `OPENAI_API_KEY` | 必填，OpenAI 兼容服务的 API 密钥（默认为阿里云百炼） |
+| ai-engine | `OPENAI_BASE_URL` | 兼容端点，默认百炼；可改为 `https://api.openai.com/v1` |
 | ai-engine | `INTERNAL_API_TOKEN` | 必须与 api-gateway 保持一致 |
-| ai-engine | `EMBEDDING_MODEL` | 向量模型，默认 `text-embedding-3-small` |
+| ai-engine | `EMBEDDING_MODEL` | 向量模型，默认 `text-embedding-v4` |
 
 ---
 
@@ -182,7 +183,7 @@ pnpm dev                      # 启动于 :5173，开发服务器自动代理 /a
 
 ```
 用户发送消息 -> 网关校验身份并组装上下文
-            -> AI 引擎：向量检索 -> 注入参考资料 -> 调用 GPT-4o 流式生成
+            -> AI 引擎：向量检索 -> 注入参考资料 -> 调用大模型流式生成
             -> 逐字回传前端 -> 持久化消息与引用来源
 ```
 
@@ -239,7 +240,7 @@ flowchart LR
     GW -->|"Internal forward<br/>X-Internal-Token"| AI["AI Engine<br/>FastAPI + LangChain<br/>:8000"]
     GW --> PG[("PostgreSQL + pgvector<br/>:5432")]
     AI --> PG
-    AI -->|"GPT-4o / Embeddings"| LLM["OpenAI API"]
+    AI -->|"deepseek-v4-flash / Embeddings"| LLM["Alibaba Cloud Model Studio<br/>(DashScope)"]
 ```
 
 | Layer | Tech Stack | Responsibility | Rationale |
@@ -267,7 +268,7 @@ flowchart LR
 | ORM | Prisma |
 | AI Backend | Python 3.11+ + FastAPI |
 | RAG Framework | LangChain |
-| LLM | OpenAI GPT-4o + text-embedding-3-small |
+| LLM | Alibaba Cloud Model Studio (DashScope): deepseek-v4-flash + text-embedding-v4, switchable to any OpenAI-compatible model |
 | Vector Storage | PostgreSQL 16 + pgvector (HNSW index) |
 | Document Parsing | PyMuPDF / python-docx / BeautifulSoup |
 | Containerization | Docker Compose |
@@ -299,7 +300,7 @@ Each subdirectory contains its own `README.md` describing the module's structure
 - Node.js 20 or later, pnpm 9 or later (`api-gateway` switches to v11 automatically via `devEngines`)
 - Python 3.11 or later
 - Docker and Docker Compose
-- An OpenAI API Key
+- An Alibaba Cloud Model Studio (Bailian/DashScope) API Key, or an OpenAI API Key
 
 ### Step 1: Start the databases
 
@@ -344,7 +345,7 @@ cd ai-engine
 python -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env          # you MUST set OPENAI_API_KEY
+cp .env.example .env          # you MUST set the Bailian API key (OPENAI_API_KEY variable)
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -371,9 +372,10 @@ Each service ships with a `.env.example` template; copy it to `.env` and adjust:
 | api-gateway | `DATABASE_URL` | PostgreSQL connection string |
 | api-gateway | `JWT_SECRET` | JWT signing secret; must be changed in production |
 | api-gateway | `INTERNAL_API_TOKEN` | Internal token for calling the AI engine |
-| ai-engine | `OPENAI_API_KEY` | Required; the OpenAI API key |
+| ai-engine | `OPENAI_API_KEY` | Required; API key of an OpenAI-compatible service (Alibaba Cloud Model Studio by default) |
+| ai-engine | `OPENAI_BASE_URL` | Compatible endpoint, Bailian by default; can be changed to `https://api.openai.com/v1` |
 | ai-engine | `INTERNAL_API_TOKEN` | Must match the gateway's token |
-| ai-engine | `EMBEDDING_MODEL` | Embedding model, defaults to `text-embedding-3-small` |
+| ai-engine | `EMBEDDING_MODEL` | Embedding model, defaults to `text-embedding-v4` |
 
 ---
 
@@ -391,7 +393,7 @@ User uploads -> gateway stores the file and creates a Document record
 
 ```
 User sends a message -> gateway verifies identity and assembles context
-                     -> AI engine: vector search -> inject references -> stream GPT-4o response
+                     -> AI engine: vector search -> inject references -> stream the LLM response
                      -> tokens forwarded to the frontend -> message and citations persisted
 ```
 
