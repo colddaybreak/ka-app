@@ -17,6 +17,10 @@ class OpenAIEmbedding(EmbeddingModel):
         self.model = OpenAIEmbeddings(
             model=settings.embedding_model,
             openai_api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url or None,
+            dimensions=settings.embedding_dimension,
+            # 百炼 text-embedding-v3/v4 单次请求最多 10 条文本
+            chunk_size=10,
         )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:

@@ -27,10 +27,13 @@ async def chat_stream(request: Request, db: Session = Depends(get_db)):
     system_prompt = body.get("system_prompt")
     retrieval_config = body.get("retrieval_config", {})
 
-    # 1. 保存用户消息
+    # 1. 先取对话历史（此时当前消息尚未入库，避免在 Prompt 中重复出现）
+    history = get_conversation_history(conversation_id)
+
+    # 2. 保存用户消息
     save_message(conversation_id, "user", user_message)
 
-    # 2. RAG 检索
+    # 3. RAG 检索
     results = rag_pipeline.retrieve(user_message, knowledge_base_id, retrieval_config)
     context = "\n\n".join(r["content"] for r in results)
     citations = [
@@ -42,9 +45,6 @@ async def chat_stream(request: Request, db: Session = Depends(get_db)):
         }
         for r in results
     ]
-
-    # 3. 获取对话历史
-    history = get_conversation_history(conversation_id)
 
     # 4. 组装 Prompt
     messages = build_rag_prompt(system_prompt, context, history, user_message)
