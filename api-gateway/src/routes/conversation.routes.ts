@@ -46,9 +46,11 @@ export default async function conversationRoutes(app: FastifyInstance) {
   // GET /api/conversations/:id — 对话详情 + 消息历史
   app.get('/:id', async (request, reply) => {
     const { id } = request.params as any;
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
 
     const conv = await prisma.conversation.findFirst({
-      where: { id },
+      where: { id, ...(role !== 'admin' && { userId }) },
       include: {
         knowledgeBase: { select: { id: true, name: true, retrievalConfig: true } },
         messages: { orderBy: { createdAt: 'asc' } },
@@ -61,6 +63,15 @@ export default async function conversationRoutes(app: FastifyInstance) {
   // PUT /api/conversations/:id — 更新对话
   app.put('/:id', async (request, reply) => {
     const { id } = request.params as any;
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
+
+    const existing = await prisma.conversation.findFirst({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: '对话不存在' });
+    if (role !== 'admin' && existing.userId !== userId) {
+      return reply.code(403).send({ error: '无权操作' });
+    }
+
     const { title, systemPrompt, modelConfig } = request.body as any;
 
     return prisma.conversation.update({
@@ -76,6 +87,15 @@ export default async function conversationRoutes(app: FastifyInstance) {
   // DELETE /api/conversations/:id — 删除对话
   app.delete('/:id', async (request, reply) => {
     const { id } = request.params as any;
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
+
+    const existing = await prisma.conversation.findFirst({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: '对话不存在' });
+    if (role !== 'admin' && existing.userId !== userId) {
+      return reply.code(403).send({ error: '无权操作' });
+    }
+
     await prisma.conversation.delete({ where: { id } });
     return { success: true };
   });
@@ -87,9 +107,11 @@ export default async function conversationRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: '请提供 conversationId 和 message' });
     }
 
-    // 加载对话信息和知识库配置
+    // 加载对话信息和知识库配置（仅本人或管理员可发起）
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
     const conv = await prisma.conversation.findFirst({
-      where: { id: conversationId },
+      where: { id: conversationId, ...(role !== 'admin' && { userId }) },
       include: { knowledgeBase: true },
     });
     if (!conv) return reply.code(404).send({ error: '对话不存在' });

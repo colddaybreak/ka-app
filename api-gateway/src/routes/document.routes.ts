@@ -2,12 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { v4 as uuid } from 'uuid';
 import { proxyToAI } from '../proxy/ai-proxy.js';
 
 const prisma = new PrismaClient();
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+// 解析为绝对路径存入数据库，AI 引擎才能跨服务直接读取文件
+const UPLOAD_DIR = resolve(process.env.UPLOAD_DIR || './uploads');
 
 export default async function documentRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);

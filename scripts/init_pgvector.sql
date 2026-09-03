@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS chunks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
-  index INTEGER NOT NULL,
+  -- 注意：不能用 index 作列名，它是 PostgreSQL 保留字
+  chunk_index INTEGER NOT NULL,
   content TEXT NOT NULL,
   metadata JSONB DEFAULT '{}',
   embedding vector(1536),           -- 维度与 EMBEDDING_DIMENSION 一致

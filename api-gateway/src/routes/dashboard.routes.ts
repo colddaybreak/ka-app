@@ -44,6 +44,8 @@ export default async function dashboardRoutes(app: FastifyInstance) {
   // GET /api/dashboard/trends?days=30 — 趋势数据
   app.get('/trends', async (request) => {
     const days = Number((request.query as any).days) || 30;
+    const userId = (request.user as any).id;
+    const isAdmin = (request.user as any).role === 'admin';
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -51,6 +53,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       SELECT DATE(created_at) as date, COUNT(*) as count
       FROM conversations
       WHERE created_at >= ${since}
+        AND (${isAdmin} OR user_id = ${userId})
       GROUP BY DATE(created_at)
       ORDER BY date
     `;
