@@ -7,6 +7,7 @@ from app.database import get_db, engine
 from app.rag.pipeline import RAGPipeline
 from app.vectorstore.pgvector import PgVectorStore
 from app.config import settings
+from pathlib import Path
 import json
 
 router = APIRouter(
@@ -50,10 +51,11 @@ async def process_document(
     if isinstance(chunk_strategy, str):
         chunk_strategy = json.loads(chunk_strategy)
 
-    # 拼接文件完整路径
-    file_path = doc[0]
-    if not file_path.startswith("/"):
-        file_path = settings.upload_dir + "/" + file_path
+    # 拼接文件完整路径：网关保存的是绝对路径（兼容 Windows 反斜杠）；
+    # 历史数据中的相对路径以 api-gateway 目录为基准（upload_dir 指向其下的 uploads）
+    file_path = doc[0].replace("\\", "/")
+    if not Path(file_path).is_absolute():
+        file_path = str(Path(settings.upload_dir).parent / file_path)
 
     # 异步处理
     background_tasks.add_task(

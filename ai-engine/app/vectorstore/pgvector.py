@@ -17,16 +17,16 @@ class PgVectorStore:
                 conn.execute(
                     text(
                         """
-                    INSERT INTO chunks (document_id, knowledge_base_id, index,
+                    INSERT INTO chunks (document_id, knowledge_base_id, chunk_index,
                                         content, metadata, embedding)
-                    VALUES (:doc_id, :kb_id, :index, :content, :metadata::jsonb,
+                    VALUES (:doc_id, :kb_id, :chunk_index, :content, :metadata::jsonb,
                             :embedding::vector)
                 """
                     ),
                     {
                         "doc_id": document_id,
                         "kb_id": knowledge_base_id,
-                        "index": chunk["index"],
+                        "chunk_index": chunk["index"],
                         "content": chunk["content"],
                         "metadata": "{}",
                         "embedding": str(embedding),

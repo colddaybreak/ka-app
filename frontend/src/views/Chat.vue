@@ -65,6 +65,7 @@ const messages = ref<any[]>([]);
 const inputMessage = ref('');
 const isStreaming = ref(false);
 const streamingContent = ref('');
+const pendingCitations = ref<any[]>([]);
 const messagesRef = ref<HTMLDivElement>();
 
 function renderMarkdown(text: string) {
@@ -100,6 +101,7 @@ async function sendMessage() {
   inputMessage.value = '';
   isStreaming.value = true;
   streamingContent.value = '';
+  pendingCitations.value = [];
   scrollToBottom();
 
   try {
@@ -114,14 +116,16 @@ async function sendMessage() {
           streamingContent.value += token;
           scrollToBottom();
         },
-        onCitations(_citations: any[]) {
-          // 引用来源将在 done 事件中一起保存
+        onCitations(citations: any[]) {
+          // 暂存引用来源，随 done 事件一起挂到助手消息上
+          pendingCitations.value = citations;
         },
         onDone(fullContent: string) {
           messages.value.push({
             id: (Date.now() + 1).toString(),
             role: 'assistant',
             content: fullContent,
+            citations: pendingCitations.value,
           });
           streamingContent.value = '';
           isStreaming.value = false;

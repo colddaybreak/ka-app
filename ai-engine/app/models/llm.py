@@ -18,4 +18,6 @@ def get_llm(model: str = None, temperature: float = None) -> ChatOpenAI:
         base_url=settings.openai_base_url or None,
         extra_body=extra_body,
         streaming=True,
+        # 流式模式下也上报 token 用量（最后一个 chunk 携带 usage 信息）
+        stream_usage=True,
     )

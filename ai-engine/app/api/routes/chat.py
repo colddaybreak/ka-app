@@ -73,6 +73,15 @@ async def chat_stream(request: Request, db: Session = Depends(get_db)):
                     "event": "token",
                     "data": json.dumps({"token": chunk.content}),
                 }
+            # 最后一个 chunk 携带 usage 信息（需在 LLM 中开启 stream_usage）
+            if chunk.usage_metadata:
+                total_tokens = {
+                    "prompt_tokens": chunk.usage_metadata.get("input_tokens", 0),
+                    "completion_tokens": chunk.usage_metadata.get(
+                        "output_tokens", 0
+                    ),
+                    "total_tokens": chunk.usage_metadata.get("total_tokens", 0),
+                }
 
         # 保存助手回复
         save_message(

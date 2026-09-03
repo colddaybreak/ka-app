@@ -1,5 +1,5 @@
 # ai-engine/app/rag/parser.py
-import pymupdf  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 from docx import Document as DocxDocument
 from bs4 import BeautifulSoup
 from pathlib import Path
