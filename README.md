@@ -13,6 +13,7 @@ KA App 是一个基于 RAG（Retrieval-Augmented Generation，检索增强生成
 | 用户认证 | 注册、登录、JWT 令牌，`admin` 与 `user` 两种角色 |
 | 知识库管理 | 支持创建多个知识库，每个知识库可独立配置分块策略与检索参数 |
 | 文档处理 | 支持 PDF、TXT、Markdown、DOCX、HTML，上传后自动解析、分块、向量化 |
+| 混合检索 | 向量 / 关键词 / 混合三种召回模式，RRF 或加权融合，可选 Rerank 模型重排，相似度阈值按知识库配置 |
 | 流式对话 | 基于 SSE 的逐字输出，回答附带引用来源（文档名与相似度） |
 | 对话记忆 | 滑动窗口机制，保留最近 20 条消息作为上下文 |
 | 数据仪表盘 | 知识库、文档、对话统计，以及近 30 天对话趋势 |
@@ -59,7 +60,8 @@ flowchart LR
 | AI 后端 | Python 3.11+ + FastAPI |
 | RAG 框架 | LangChain |
 | 大语言模型 | 阿里云百炼（DashScope）：deepseek-v4-flash + text-embedding-v4，可切换至任意 OpenAI 兼容模型 |
-| 向量存储 | PostgreSQL 16 + pgvector（HNSW 索引） |
+| 向量存储 | PostgreSQL 16 + pgvector（HNSW 索引），关键词检索复用其全文检索能力（GIN 索引） |
+| 检索增强 | RRF / 加权融合 + 百炼 gte-rerank 重排（可选） |
 | 文档解析 | PyMuPDF / python-docx / BeautifulSoup |
 | 容器化 | Docker Compose |
 | 包管理 | pnpm（Node.js）、pip（Python） |
@@ -183,7 +185,7 @@ pnpm dev                      # 启动于 :5173，开发服务器自动代理 /a
 
 ```
 用户发送消息 -> 网关校验身份并组装上下文
-            -> AI 引擎：向量检索 -> 注入参考资料 -> 调用大模型流式生成
+            -> AI 引擎：检索召回（向量/关键词/混合，可选重排）-> 注入参考资料 -> 调用大模型流式生成
             -> 逐字回传前端 -> 持久化消息与引用来源
 ```
 
@@ -223,6 +225,7 @@ KA App is a knowledge base Q&A platform based on RAG (Retrieval-Augmented Genera
 | Authentication | Registration, login, JWT tokens, `admin` and `user` roles |
 | Knowledge Bases | Multiple knowledge bases, each with independent chunking and retrieval configuration |
 | Document Processing | PDF, TXT, Markdown, DOCX and HTML, automatically parsed, chunked and vectorized |
+| Hybrid Retrieval | Vector / keyword / hybrid recall, RRF or weighted fusion, optional rerank model, per-knowledge-base similarity threshold |
 | Streaming Chat | SSE token-by-token output with citation sources (document name and similarity) |
 | Conversation Memory | Sliding window retaining the last 20 messages as context |
 | Dashboard | Knowledge base, document and conversation statistics with 30-day trends |
@@ -269,7 +272,8 @@ flowchart LR
 | AI Backend | Python 3.11+ + FastAPI |
 | RAG Framework | LangChain |
 | LLM | Alibaba Cloud Model Studio (DashScope): deepseek-v4-flash + text-embedding-v4, switchable to any OpenAI-compatible model |
-| Vector Storage | PostgreSQL 16 + pgvector (HNSW index) |
+| Vector Storage | PostgreSQL 16 + pgvector (HNSW index); keyword search reuses its full-text search (GIN index) |
+| Retrieval Enhancement | RRF / weighted fusion + Bailian gte-rerank reranking (optional) |
 | Document Parsing | PyMuPDF / python-docx / BeautifulSoup |
 | Containerization | Docker Compose |
 | Package Managers | pnpm (Node.js), pip (Python) |
@@ -393,7 +397,7 @@ User uploads -> gateway stores the file and creates a Document record
 
 ```
 User sends a message -> gateway verifies identity and assembles context
-                     -> AI engine: vector search -> inject references -> stream the LLM response
+                     -> AI engine: retrieval (vector/keyword/hybrid, optional rerank) -> inject references -> stream the LLM response
                      -> tokens forwarded to the frontend -> message and citations persisted
 ```
 

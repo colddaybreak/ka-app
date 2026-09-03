@@ -54,16 +54,73 @@
 
       <el-col :span="8">
         <el-card>
-          <template #header>知识库配置</template>
-          <el-descriptions :column="1" border>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <span>知识库配置</span>
+              <el-button type="primary" size="small" @click="saveRetrievalConfig">
+                保存检索配置
+              </el-button>
+            </div>
+          </template>
+
+          <!-- 检索配置表单 -->
+          <el-form label-position="top" size="small">
+            <el-form-item label="检索模式">
+              <el-radio-group v-model="retrievalConfig.mode">
+                <el-radio-button value="vector">向量</el-radio-button>
+                <el-radio-button value="keyword">关键词</el-radio-button>
+                <el-radio-button value="hybrid">混合</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+
+            <template v-if="retrievalConfig.mode === 'hybrid'">
+              <el-form-item label="融合方式">
+                <el-radio-group v-model="retrievalConfig.fusionMethod">
+                  <el-radio-button value="rrf">RRF</el-radio-button>
+                  <el-radio-button value="weighted">加权</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="retrievalConfig.fusionMethod === 'weighted'" label="向量路权重">
+                <el-slider
+                  v-model="vectorWeight"
+                  :min="0"
+                  :max="1"
+                  :step="0.1"
+                  show-input
+                />
+              </el-form-item>
+            </template>
+
+            <template v-if="retrievalConfig.mode !== 'keyword'">
+              <el-form-item label="相似度阈值">
+                <el-slider
+                  v-model="retrievalConfig.similarityThreshold"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  show-input
+                />
+              </el-form-item>
+            </template>
+
+            <el-form-item label="召回数量 (topK)">
+              <el-input-number v-model="retrievalConfig.topK" :min="1" :max="20" />
+            </el-form-item>
+
+            <el-form-item label="Rerank 重排序">
+              <el-switch v-model="retrievalConfig.useRerank" />
+            </el-form-item>
+            <el-form-item v-if="retrievalConfig.useRerank" label="重排后保留条数">
+              <el-input-number v-model="retrievalConfig.rerankTopN" :min="1" :max="20" />
+            </el-form-item>
+          </el-form>
+
+          <el-descriptions :column="1" border style="margin-top: 12px">
             <el-descriptions-item label="Embedding 模型">
               {{ kb?.embeddingModel }}
             </el-descriptions-item>
             <el-descriptions-item label="分块策略">
               {{ formatJSON(kb?.chunkStrategy) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="检索配置">
-              {{ formatJSON(kb?.retrievalConfig) }}
             </el-descriptions-item>
             <el-descriptions-item label="创建时间">
               {{ kb ? new Date(kb.createdAt).toLocaleString() : '-' }}
@@ -83,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import client from '@/api/client';
@@ -97,6 +154,26 @@ const kbId = route.params.id as string;
 const kb = ref<any>(null);
 const documents = ref<any[]>([]);
 const loadingDocs = ref(false);
+
+// 检索配置（与后端 retrieval_config 对应，缺省值与后端保持一致）
+const DEFAULT_RETRIEVAL_CONFIG = {
+  mode: 'vector',
+  fusionMethod: 'rrf',
+  weights: { vector: 0.5, keyword: 0.5 },
+  topK: 5,
+  similarityThreshold: 0.7,
+  useRerank: false,
+  rerankTopN: 5,
+};
+const retrievalConfig = reactive<any>({ ...DEFAULT_RETRIEVAL_CONFIG });
+
+// 权重滑块只暴露向量路权重，关键词路权重取互补值
+const vectorWeight = computed({
+  get: () => retrievalConfig.weights?.vector ?? 0.5,
+  set: (v: number) => {
+    retrievalConfig.weights = { vector: v, keyword: +(1 - v).toFixed(1) };
+  },
+});
 
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${auth.token}`,
@@ -120,6 +197,22 @@ function formatJSON(val: any) {
 async function fetchDetail() {
   try {
     kb.value = await client.get(`/knowledge-bases/${kbId}`) as any;
+    // 用知识库已存配置覆盖默认值（旧数据缺失的键由默认值补齐）
+    Object.assign(
+      retrievalConfig,
+      DEFAULT_RETRIEVAL_CONFIG,
+      kb.value?.retrievalConfig || {},
+    );
+  } catch { /* handled */ }
+}
+
+async function saveRetrievalConfig() {
+  try {
+    await client.put(`/knowledge-bases/${kbId}`, {
+      retrievalConfig: { ...retrievalConfig },
+    });
+    ElMessage.success('检索配置已保存');
+    fetchDetail();
   } catch { /* handled */ }
 }
 

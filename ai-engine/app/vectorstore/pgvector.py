@@ -38,9 +38,8 @@ class PgVectorStore:
         query_embedding: list[float],
         knowledge_base_id: str,
         top_k: int = 5,
-        threshold: float = 0.7,
     ) -> list[dict]:
-        """余弦相似度搜索"""
+        """余弦相似度搜索，返回按相似度降序的 top_k 候选（阈值过滤由调用方负责）"""
         with engine.connect() as conn:
             result = conn.execute(
                 text(
@@ -72,7 +71,48 @@ class PgVectorStore:
                     "similarity": float(row[5]),
                 }
                 for row in rows
-                if float(row[5]) >= threshold
+            ]
+
+    def keyword_search(
+        self,
+        query: str,
+        knowledge_base_id: str,
+        top_k: int = 5,
+    ) -> list[dict]:
+        """关键词全文检索（ts_rank 排序），返回结构与 search() 一致"""
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                SELECT c.id, c.content, c.metadata, c.document_id,
+                       d.filename as document_name,
+                       ts_rank(c.tsv, plainto_tsquery('simple', :query)) as rank
+                FROM chunks c
+                JOIN documents d ON c.document_id = d.id
+                WHERE c.knowledge_base_id = :kb_id
+                  AND c.tsv @@ plainto_tsquery('simple', :query)
+                ORDER BY rank DESC
+                LIMIT :top_k
+            """
+                ),
+                {
+                    "query": query,
+                    "kb_id": knowledge_base_id,
+                    "top_k": top_k,
+                },
+            )
+            rows = result.fetchall()
+            return [
+                {
+                    "chunk_id": str(row[0]),
+                    "content": row[1],
+                    "metadata": row[2],
+                    "document_id": str(row[3]),
+                    "document_name": row[4],
+                    # ts_rank 分数与向量余弦相似度量纲不同，加权融合前需归一化
+                    "similarity": float(row[5]),
+                }
+                for row in rows
             ]
 
     def delete_by_document(self, document_id: str):

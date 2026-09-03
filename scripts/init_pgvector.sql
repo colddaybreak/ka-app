@@ -24,3 +24,11 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks
 -- 按知识库查询的索引
 CREATE INDEX IF NOT EXISTS idx_chunks_kb_id ON chunks(knowledge_base_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(document_id);
+
+-- 关键词全文检索（混合检索第 2 步）：
+-- tsvector 生成列由 content 自动维护，无需应用层写入。
+-- 注意：'simple' 配置对中文分词支持有限，后续接入 zhparser 时需重建此列。
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS tsv tsvector
+  GENERATED ALWAYS AS (to_tsvector('simple', COALESCE(content, ''))) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_chunks_tsv ON chunks USING gin (tsv);

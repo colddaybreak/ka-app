@@ -13,6 +13,7 @@
 1. **启用 pgvector 扩展**：执行 `CREATE EXTENSION IF NOT EXISTS vector;`，使 PostgreSQL 支持向量类型与相似度运算符。
 2. **创建 `chunks` 表**：存储文档分块的文本内容、元数据及对应的 1536 维向量。
 3. **创建索引**：一个 HNSW 向量索引（加速相似度检索），以及两个普通索引（按知识库、按文档查询）。
+4. **关键词全文检索支持**：为 `chunks` 表添加 `tsv` 生成列（由 `content` 自动生成 `tsvector`）及 GIN 索引，供关键词召回使用。
 
 ### 为什么不使用 Prisma 管理该表
 
@@ -25,10 +26,11 @@
 | `id` | UUID | 主键，自动生成 |
 | `document_id` | UUID | 外键，引用 `documents`，级联删除 |
 | `knowledge_base_id` | UUID | 外键，引用 `knowledge_bases`，级联删除 |
-| `index` | INTEGER | 该分块在原文档中的序号 |
+| `chunk_index` | INTEGER | 该分块在原文档中的序号 |
 | `content` | TEXT | 分块文本内容 |
 | `metadata` | JSONB | 预留的元数据字段 |
 | `embedding` | vector(1536) | 向量，维度须与 `EMBEDDING_DIMENSION` 配置一致 |
+| `tsv` | tsvector | 生成列，`content` 的全文检索向量（'simple' 配置，中文分词有限） |
 | `created_at` | TIMESTAMP | 创建时间 |
 
 ### HNSW 索引参数说明
@@ -95,6 +97,7 @@ Back to [main README](../README.md)
 1. **Enables the pgvector extension**: runs `CREATE EXTENSION IF NOT EXISTS vector;`, giving PostgreSQL vector types and similarity operators.
 2. **Creates the `chunks` table**: stores document chunk text, metadata, and the corresponding 1536-dimensional vectors.
 3. **Creates indexes**: one HNSW vector index (accelerates similarity search) and two regular indexes (lookup by knowledge base and by document).
+4. **Keyword full-text search support**: adds a `tsv` generated column to `chunks` (a `tsvector` derived from `content`) with a GIN index, powering keyword recall.
 
 ### Why this table is not managed by Prisma
 
@@ -107,10 +110,11 @@ The other five business tables are created and migrated automatically by the gat
 | `id` | UUID | Primary key, auto-generated |
 | `document_id` | UUID | Foreign key to `documents`, cascade delete |
 | `knowledge_base_id` | UUID | Foreign key to `knowledge_bases`, cascade delete |
-| `index` | INTEGER | Position of the chunk within the source document |
+| `chunk_index` | INTEGER | Position of the chunk within the source document |
 | `content` | TEXT | Chunk text content |
 | `metadata` | JSONB | Reserved metadata field |
 | `embedding` | vector(1536) | Vector; dimensions must match the `EMBEDDING_DIMENSION` setting |
+| `tsv` | tsvector | Generated column; full-text search vector of `content` ('simple' config, limited Chinese tokenization) |
 | `created_at` | TIMESTAMP | Creation time |
 
 ### HNSW index parameters

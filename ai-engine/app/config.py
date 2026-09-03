@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     default_top_k: int = 10
     default_similarity_threshold: float = 0.7
     max_conversation_history: int = 20
+    # Rerank 模型（DashScope text-rerank，复用 OPENAI_API_KEY；
+    # 切换至 OpenAI 官方端点时无此服务，useRerank 会自动降级）
+    rerank_model: str = "gte-rerank-v2"
 
     # File
     upload_dir: str = "../api-gateway/uploads"

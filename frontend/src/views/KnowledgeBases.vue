@@ -38,6 +38,13 @@
         <el-form-item label="描述">
           <el-input v-model="newKB.description" type="textarea" placeholder="知识库描述（可选）" />
         </el-form-item>
+        <el-form-item label="检索模式">
+          <el-radio-group v-model="retrievalMode">
+            <el-radio-button value="vector">向量</el-radio-button>
+            <el-radio-button value="keyword">关键词</el-radio-button>
+            <el-radio-button value="hybrid">混合</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
@@ -58,6 +65,7 @@ const loading = ref(false);
 const knowledgeBases = ref<any[]>([]);
 const showCreateDialog = ref(false);
 const newKB = reactive({ name: '', description: '' });
+const retrievalMode = ref('vector');
 
 async function fetchList() {
   loading.value = true;
@@ -73,10 +81,14 @@ async function createKB() {
     return;
   }
   try {
-    await client.post('/knowledge-bases', newKB);
+    await client.post('/knowledge-bases', {
+      ...newKB,
+      retrievalConfig: { mode: retrievalMode.value },
+    });
     showCreateDialog.value = false;
     newKB.name = '';
     newKB.description = '';
+    retrievalMode.value = 'vector';
     ElMessage.success('创建成功');
     fetchList();
   } catch { /* handled */ }

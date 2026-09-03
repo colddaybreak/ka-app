@@ -13,7 +13,7 @@ AI Engine 是知识库问答的核心服务，负责文档解析、分块、向�
 核心职责：
 
 1. **文档处理**：将上传的 PDF、Word、Markdown 等文件解析为纯文本，切分为语义分块，转换为向量后写入 `chunks` 表。
-2. **智能问答**：接收用户提问，通过向量检索获取最相关的分块，将其注入提示词，调用大语言模型流式生成回答。
+2. **智能问答**：接收用户提问，通过向量、关键词或混合检索获取最相关的分块（可选 Rerank 重排），将其注入提示词，调用大语言模型流式生成回答。
 
 ---
 
@@ -33,8 +33,10 @@ ai-engine/
 │   ├── rag/
 │   │   ├── parser.py            # 文档解析器（按扩展名分发）
 │   │   ├── splitter.py          # 文本分块（递归字符切分）
-│   │   ├── pipeline.py          # RAG 流水线：解析 -> 分块 -> 向量化 -> 存储
-│   │   └── retriever.py         # 组装 RAG 提示词
+│   │   ├── pipeline.py          # RAG 流水线：解析 -> 分块 -> 向量化 -> 存储；检索编排
+│   │   ├── retriever.py         # 组装 RAG 提示词
+│   │   ├── fusion.py            # 多路召回融合（RRF / 加权）
+│   │   └── reranker.py          # Rerank 重排（DashScope gte-rerank）
 │   ├── models/
 │   │   ├── embedding.py         # 向量模型（抽象基类 + OpenAI 兼容实现，默认阿里云百炼）
 │   │   └── llm.py               # 大语言模型工厂函数
@@ -69,13 +71,14 @@ RAG（Retrieval-Augmented Generation）是本模块的核心机制，其目标�
 ### 问答流程
 
 ```
-用户问题 -> [embedding] 向量化 -> [pgvector] 余弦相似度检索 top-K
+用户问题 -> 召回（向量 / 关键词 / 混合）-> (可选) Rerank 重排
         -> [retriever] 注入系统提示词 -> [llm] 大模型流式生成 -> SSE 回传
 ```
 
 | 环节 | 说明 |
 |------|------|
-| 检索 | 取相似度最高且超过阈值（默认 0.7）的 10 个分块作为参考资料 |
+| 检索 | 由知识库 `retrievalConfig` 决定：`mode` 为 `vector`（默认，余弦相似度 + 阈值筛选，默认 0.7）、`keyword`（PostgreSQL 全文检索）或 `hybrid`（双路召回后按 `fusionMethod` 做 RRF / 加权融合）；阈值全部滤空时兜底保留最高分候选 |
+| 重排 | `useRerank` 开启时调用百炼 `gte-rerank-v2` 对候选重排并取 `rerankTopN`；服务不可用时自动降级，不阻断问答 |
 | 提示词 | `rag/retriever.py` 在系统提示词中要求模型"依据参考资料作答，资料缺失时如实告知"，以抑制幻觉 |
 | 记忆 | `memory/conversation.py` 取最近 20 条消息作为上下文，控制 token 成本 |
 | 流式输出 | `api/routes/chat.py` 先发送 `citations` 事件（引用来源），再逐块发送 `token` 事件，最后发送 `done` 事件 |
@@ -134,6 +137,7 @@ RAG（Retrieval-Augmented Generation）是本模块的核心机制，其目标�
 | `DEFAULT_TOP_K` | `10` | 默认检索条数 |
 | `DEFAULT_SIMILARITY_THRESHOLD` | `0.7` | 相似度阈值 |
 | `MAX_CONVERSATION_HISTORY` | `20` | 对话记忆窗口大小 |
+| `RERANK_MODEL` | `gte-rerank-v2` | Rerank 模型（DashScope text-rerank，复用 `OPENAI_API_KEY`） |
 | `UPLOAD_DIR` | `../api-gateway/uploads` | 上传文件目录（与网关共享） |
 
 ---
@@ -198,7 +202,7 @@ This service is the only part of the system that interacts with AI capabilities.
 Core responsibilities:
 
 1. **Document processing**: parse uploaded PDF, Word and Markdown files into plain text, split them into semantic chunks, convert them into vectors, and write them to the `chunks` table.
-2. **Question answering**: receive user questions, retrieve the most relevant chunks via vector search, inject them into the prompt, and stream an answer from the LLM.
+2. **Question answering**: receive user questions, retrieve the most relevant chunks via vector, keyword or hybrid search (with optional reranking), inject them into the prompt, and stream an answer from the LLM.
 
 ---
 
@@ -218,8 +222,10 @@ ai-engine/
 │   ├── rag/
 │   │   ├── parser.py            # Document parser (dispatched by extension)
 │   │   ├── splitter.py          # Text chunking (recursive character split)
-│   │   ├── pipeline.py          # RAG pipeline: parse -> chunk -> embed -> store
-│   │   └── retriever.py         # Assembles the RAG prompt
+│   │   ├── pipeline.py          # RAG pipeline: parse -> chunk -> embed -> store; retrieval orchestration
+│   │   ├── retriever.py         # Assembles the RAG prompt
+│   │   ├── fusion.py            # Multi-path recall fusion (RRF / weighted)
+│   │   └── reranker.py          # Reranking (DashScope gte-rerank)
 │   ├── models/
 │   │   ├── embedding.py         # Embedding models (abstract base + OpenAI-compatible impl, Bailian by default)
 │   │   └── llm.py               # LLM factory function
@@ -254,13 +260,14 @@ file -> [parser] parse to text -> [splitter] chunk -> [embedding] batch vectoriz
 ### Q&A flow
 
 ```
-user question -> [embedding] vectorize -> [pgvector] cosine similarity top-K
+user question -> recall (vector / keyword / hybrid) -> (optional) rerank
              -> [retriever] inject into system prompt -> [llm] stream generation -> SSE response
 ```
 
 | Stage | Description |
 |-------|-------------|
-| Retrieval | Takes the top 10 chunks above the similarity threshold (default 0.7) as references |
+| Retrieval | Driven by each knowledge base's `retrievalConfig`: `mode` can be `vector` (default; cosine similarity with a threshold filter, default 0.7), `keyword` (PostgreSQL full-text search), or `hybrid` (dual-path recall fused via RRF or weighted scoring per `fusionMethod`); if the threshold filters everything out, the best candidate is kept as a fallback |
+| Reranking | When `useRerank` is on, candidates are reranked by Bailian `gte-rerank-v2` and truncated to `rerankTopN`; the service degrades gracefully on failure and never blocks Q&A |
 | Prompting | `rag/retriever.py` instructs the model to answer from references and admit when information is missing, suppressing hallucination |
 | Memory | `memory/conversation.py` uses the last 20 messages as context, controlling token cost |
 | Streaming | `api/routes/chat.py` emits a `citations` event first, then `token` events, then a final `done` event |
@@ -319,6 +326,7 @@ Configuration is loaded from `.env` (see the `.env.example` template):
 | `DEFAULT_TOP_K` | `10` | Default retrieval count |
 | `DEFAULT_SIMILARITY_THRESHOLD` | `0.7` | Similarity threshold |
 | `MAX_CONVERSATION_HISTORY` | `20` | Conversation memory window size |
+| `RERANK_MODEL` | `gte-rerank-v2` | Rerank model (DashScope text-rerank, reuses `OPENAI_API_KEY`) |
 | `UPLOAD_DIR` | `../api-gateway/uploads` | Upload directory (shared with the gateway) |
 
 ---
