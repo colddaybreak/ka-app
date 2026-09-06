@@ -12,7 +12,9 @@ def get_llm(model: str = None, temperature: float = None) -> ChatOpenAI:
 
     return ChatOpenAI(
         model=model or settings.llm_model,
-        temperature=temperature or settings.llm_temperature,
+        temperature=(
+            temperature if temperature is not None else settings.llm_temperature
+        ),
         max_tokens=settings.max_tokens,
         openai_api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,

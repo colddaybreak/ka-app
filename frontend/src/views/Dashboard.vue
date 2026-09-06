@@ -28,15 +28,24 @@
 
     <el-card style="margin-top: 20px">
       <template #header>对话趋势（近 30 天）</template>
-      <div ref="chartRef" style="height: 300px">
-        <el-empty v-if="!trends.length" description="暂无数据" />
+      <div v-if="trends.length" class="trend-chart">
+        <div
+          v-for="t in trends"
+          :key="t.date"
+          class="trend-bar-wrap"
+          :title="`${t.date}: ${t.count} 次对话`"
+        >
+          <div class="trend-bar" :style="{ height: barHeight(t.count) + '%' }"></div>
+          <span class="trend-date">{{ shortDate(t.date) }}</span>
+        </div>
       </div>
+      <el-empty v-else description="暂无数据" />
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted, reactive, computed } from 'vue';
 import client from '@/api/client';
 
 const stats = reactive({
@@ -47,7 +56,17 @@ const stats = reactive({
 });
 
 const trends = ref<any[]>([]);
-const chartRef = ref<HTMLDivElement>();
+const maxCount = computed(() =>
+  Math.max(1, ...trends.value.map((t: any) => Number(t.count))),
+);
+
+function barHeight(count: number) {
+  return Math.max(4, (Number(count) / maxCount.value) * 100);
+}
+
+function shortDate(d: string) {
+  return d ? d.slice(5) : '';
+}
 
 onMounted(async () => {
   try {
@@ -63,3 +82,37 @@ onMounted(async () => {
   }
 });
 </script>
+
+<style scoped>
+.trend-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 280px;
+  padding: 12px 4px 0;
+}
+
+.trend-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 6px;
+}
+
+.trend-bar {
+  width: 100%;
+  max-width: 24px;
+  background: #409eff;
+  border-radius: 3px 3px 0 0;
+  min-height: 4px;
+}
+
+.trend-date {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+}
+</style>

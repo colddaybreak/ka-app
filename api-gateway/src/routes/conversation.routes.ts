@@ -15,6 +15,11 @@ export default async function conversationRoutes(app: FastifyInstance) {
 
     const kb = await prisma.knowledgeBase.findFirst({ where: { id: knowledgeBaseId } });
     if (!kb) return reply.code(404).send({ error: '知识库不存在' });
+    // user 角色只能针对本人创建的知识库发起对话，避免借对话检索他人知识库
+    const role = (request.user as any).role;
+    if (role !== 'admin' && kb.userId !== (request.user as any).id) {
+      return reply.code(403).send({ error: '无权在该知识库下创建对话' });
+    }
 
     return prisma.conversation.create({
       data: {

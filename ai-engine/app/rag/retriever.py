@@ -15,6 +15,9 @@ def build_rag_prompt(
     )
     if context:
         system_content += f"\n\n参考资料：\n{context}"
+    else:
+        # 未检索到任何资料（如纯关键词模式无命中）时明确告知模型，避免其编造内容
+        system_content += "\n\n注意：本次未从知识库中检索到相关资料。请如实告知用户没有找到相关信息，不要编造内容。"
     messages.append(SystemMessage(content=system_content))
 
     # 对话历史

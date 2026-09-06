@@ -140,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import client from '@/api/client';
@@ -227,7 +227,31 @@ async function fetchDocuments() {
 function onUploadSuccess() {
   ElMessage.success('文档上传成功，正在处理...');
   fetchDocuments();
+  // 轮询直至全部文档处理完成（pending/processing -> done/failed）
+  startPolling();
 }
+
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    await fetchDocuments();
+    const processing = documents.value.some(
+      (d) => d.status === 'pending' || d.status === 'processing',
+    );
+    if (!processing) stopPolling();
+  }, 3000);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+onBeforeUnmount(stopPolling);
 
 async function deleteDoc(id: string) {
   try {

@@ -11,3 +11,4 @@ async def verify_internal_token(request: Request):
 
     # 从请求头提取网关已校验的用户信息
     request.state.user_id = request.headers.get("X-User-Id")
+    request.state.user_role = request.headers.get("X-User-Role")

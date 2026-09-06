@@ -40,8 +40,11 @@ export default async function knowledgeBaseRoutes(app: FastifyInstance) {
   // GET /api/knowledge-bases/:id — 知识库详情
   app.get('/:id', async (request, reply) => {
     const { id } = request.params as any;
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
+    // user 角色仅能查看本人创建的知识库
     const kb = await prisma.knowledgeBase.findFirst({
-      where: { id },
+      where: { id, ...(role !== 'admin' && { userId }) },
       include: {
         documents: { orderBy: { createdAt: 'desc' } },
         _count: { select: { documents: true, conversations: true } },

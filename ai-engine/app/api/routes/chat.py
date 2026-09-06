@@ -1,5 +1,5 @@
 # ai-engine/app/api/routes/chat.py
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from app.api.deps import verify_internal_token
@@ -27,6 +27,18 @@ async def chat_stream(request: Request, db: Session = Depends(get_db)):
     system_prompt = body.get("system_prompt")
     retrieval_config = body.get("retrieval_config", {})
 
+    # 纵深防御：校验知识库归属（网关已校验对话归属，此处防止绕过网关直连）
+    user_id = request.state.user_id
+    user_role = request.state.user_role
+    kb_owner = db.execute(
+        text("SELECT user_id FROM knowledge_bases WHERE id = :kb_id"),
+        {"kb_id": knowledge_base_id},
+    ).fetchone()
+    if not kb_owner:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    if user_role != "admin" and str(kb_owner[0]) != user_id:
+        raise HTTPException(status_code=403, detail="无权访问该知识库")
+
     # 1. 先取对话历史（此时当前消息尚未入库，避免在 Prompt 中重复出现）
     history = get_conversation_history(conversation_id)
 
@@ -36,12 +48,21 @@ async def chat_stream(request: Request, db: Session = Depends(get_db)):
     # 3. RAG 检索
     results = rag_pipeline.retrieve(user_message, knowledge_base_id, retrieval_config)
     context = "\n\n".join(r["content"] for r in results)
+    # keyword 模式的 similarity 为 ts_rank（非 0~1 相似度），标记来源让前端按"关键词匹配"展示；
+    # 开启 rerank 时经 reranker 替换为 0~1 相关性分数，可正常按百分比展示
+    keyword_raw = retrieval_config.get("mode") == "keyword" and not retrieval_config.get(
+        "useRerank"
+    )
     citations = [
         {
             "chunk_id": r["chunk_id"],
             "document_name": r["document_name"],
             "content_snippet": r["content"][:200],
-            "similarity": r["similarity"],
+            **(
+                {"source": "keyword"}
+                if keyword_raw
+                else {"similarity": r["similarity"]}
+            ),
         }
         for r in results
     ]
@@ -126,4 +147,9 @@ def save_message(
                 "token_usage": json.dumps(token_usage) if token_usage else None,
                 "created_at": datetime.datetime.now(),
             },
+        )
+        # 同步会话更新时间，保证对话列表按最近活跃排序
+        conn.execute(
+            text("UPDATE conversations SET updated_at = NOW() WHERE id = :conv_id"),
+            {"conv_id": conversation_id},
         )

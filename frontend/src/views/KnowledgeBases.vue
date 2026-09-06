@@ -83,7 +83,16 @@ async function createKB() {
   try {
     await client.post('/knowledge-bases', {
       ...newKB,
-      retrievalConfig: { mode: retrievalMode.value },
+      // 补全完整检索配置，避免网关用稀疏对象覆盖 schema 默认值
+      retrievalConfig: {
+        mode: retrievalMode.value,
+        fusionMethod: 'rrf',
+        weights: { vector: 0.5, keyword: 0.5 },
+        topK: 5,
+        similarityThreshold: 0.7,
+        useRerank: false,
+        rerankTopN: 5,
+      },
     });
     showCreateDialog.value = false;
     newKB.name = '';

@@ -16,7 +16,10 @@
             <el-collapse-item :title="`参考来源 (${msg.citations.length})`">
               <div v-for="cite in msg.citations" :key="cite.chunk_id" class="citation-item">
                 <strong>{{ cite.document_name }}</strong>
-                <span class="similarity">相似度: {{ (cite.similarity * 100).toFixed(1) }}%</span>
+                <span class="similarity">
+                  <template v-if="cite.source === 'keyword'">关键词匹配</template>
+                  <template v-else-if="cite.similarity != null">相似度: {{ (cite.similarity * 100).toFixed(1) }}%</template>
+                </span>
                 <p>{{ cite.content_snippet }}</p>
               </div>
             </el-collapse-item>
@@ -133,7 +136,18 @@ async function sendMessage() {
         },
         onError(error: string) {
           ElMessage.error(error);
+          // 流式中途断开时保留已生成内容，避免界面丢失已输出的回答
+          if (streamingContent.value) {
+            messages.value.push({
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: streamingContent.value,
+              citations: pendingCitations.value,
+            });
+          }
+          streamingContent.value = '';
           isStreaming.value = false;
+          scrollToBottom();
         },
       },
     );

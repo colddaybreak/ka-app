@@ -24,6 +24,7 @@ export async function proxyChatStream(
       headers: {
         'X-Internal-Token': INTERNAL_TOKEN,
         'X-User-Id': (request.user as any).id,
+        'X-User-Role': (request.user as any).role,
         'Content-Type': 'application/json',
       },
       responseType: 'stream',

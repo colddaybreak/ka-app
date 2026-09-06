@@ -63,8 +63,16 @@ export default async function documentRoutes(app: FastifyInstance) {
   });
 
   // GET /api/documents/knowledge-base/:knowledgeBaseId — 文档列表
-  app.get('/knowledge-base/:knowledgeBaseId', async (request) => {
+  app.get('/knowledge-base/:knowledgeBaseId', async (request, reply) => {
     const { knowledgeBaseId } = request.params as any;
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
+    // user 角色仅能查看本人知识库下的文档
+    const kb = await prisma.knowledgeBase.findFirst({
+      where: { id: knowledgeBaseId, ...(role !== 'admin' && { userId }) },
+    });
+    if (!kb) return reply.code(403).send({ error: '无权访问该知识库' });
+
     return prisma.document.findMany({
       where: { knowledgeBaseId },
       orderBy: { createdAt: 'desc' },
@@ -72,10 +80,14 @@ export default async function documentRoutes(app: FastifyInstance) {
   });
 
   // GET /api/documents/:documentId/status — 处理状态
-  app.get('/:documentId/status', async (request) => {
+  app.get('/:documentId/status', async (request, reply) => {
     const { documentId } = request.params as any;
-    const doc = await prisma.document.findUnique({ where: { id: documentId } });
-    if (!doc) return { error: '文档不存在' };
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, knowledgeBase: { userId: role === 'admin' ? undefined : userId } },
+    });
+    if (!doc) return reply.code(404).send({ error: '文档不存在' });
 
     if (doc.status === 'processing') {
       try {

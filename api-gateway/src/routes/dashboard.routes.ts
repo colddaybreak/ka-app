@@ -22,7 +22,8 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    // Token 消耗汇总
+    // Token 消耗汇总（仅统计当前用户自己的，管理员统计全部）
+    const isAdmin = role === 'admin';
     const tokenResult: any = await prisma.$queryRaw`
       SELECT
         COALESCE(SUM((token_usage->>'prompt_tokens')::int), 0) as prompt_tokens,
@@ -30,6 +31,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       FROM messages m
       JOIN conversations c ON m.conversation_id = c.id
       WHERE m.token_usage IS NOT NULL
+        AND (${isAdmin} OR c.user_id = ${userId})
     `;
 
     return {

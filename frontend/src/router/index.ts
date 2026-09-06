@@ -20,13 +20,25 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes });
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const auth = useAuthStore();
   if (to.meta.requiresAuth && !auth.token) {
     next('/login');
-  } else {
-    next();
+    return;
   }
+  // 刷新页面后 token 已恢复但 user 为空：拉取 /auth/me 补全会话
+  if (to.meta.requiresAuth && auth.token && !auth.user) {
+    try {
+      await auth.fetchMe();
+    } catch {
+      // 401 已在拦截器中登出；网络错误时保留 token 继续进入页面
+    }
+    if (!auth.token) {
+      next('/login');
+      return;
+    }
+  }
+  next();
 });
 
 export default router;
