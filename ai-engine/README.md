@@ -36,7 +36,8 @@ ai-engine/
 │   │   ├── pipeline.py          # RAG 流水线：解析 -> 分块 -> 向量化 -> 存储；检索编排
 │   │   ├── retriever.py         # 组装 RAG 提示词
 │   │   ├── fusion.py            # 多路召回融合（RRF / 加权）
-│   │   └── reranker.py          # Rerank 重排（DashScope gte-rerank）
+│   │   ├── reranker.py          # Rerank 重排（DashScope gte-rerank）
+│   │   └── metadata.py          # 元数据 LLM 提取（按模板键/类型/说明）
 │   ├── models/
 │   │   ├── embedding.py         # 向量模型（抽象基类 + OpenAI 兼容实现，默认阿里云百炼）
 │   │   └── llm.py               # 大语言模型工厂函数
@@ -66,7 +67,7 @@ RAG（Retrieval-Augmented Generation）是本模块的核心机制，其目标�
 | 解析 | `rag/parser.py` | 按扩展名路由至对应解析器：PDF 使用 PyMuPDF（保留页码标记），DOCX 使用 python-docx，HTML 使用 BeautifulSoup（剔除 script 与 style） |
 | 分块 | `rag/splitter.py` | 基于 LangChain 递归字符切分器，优先在段落、句子、空格边界断开；显式加入中文标点（。！？），避免切断中文句子 |
 | 向量化 | `models/embedding.py` | 调用 OpenAI 兼容 Embedding API（默认阿里云百炼），将文本块转换为 1536 维向量 |
-| 存储 | `vectorstore/pgvector.py` | 写入 `chunks` 表，该表建有 HNSW 索引，详见 `scripts/init_pgvector.sql` |
+| 存储 | `vectorstore/pgvector.py` | 写入 `chunks` 表（含文档元数据冗余标记，供检索过滤），该表建有 HNSW 索引，详见 `scripts/init_pgvector.sql` |
 
 ### 问答流程
 
@@ -77,11 +78,23 @@ RAG（Retrieval-Augmented Generation）是本模块的核心机制，其目标�
 
 | 环节 | 说明 |
 |------|------|
-| 检索 | 由知识库 `retrievalConfig` 决定：`mode` 为 `vector`（默认，余弦相似度 + 阈值筛选，默认 0.7）、`keyword`（PostgreSQL 全文检索）或 `hybrid`（双路召回后按 `fusionMethod` 做 RRF / 加权融合）；阈值全部滤空时兜底保留最高分候选 |
+| 检索 | 由知识库 `retrievalConfig` 决定：`mode` 为 `vector`（默认，余弦相似度 + 阈值筛选，默认 0.7）、`keyword`（PostgreSQL 全文检索）或 `hybrid`（双路召回后按 `fusionMethod` 做 RRF / 加权融合）；阈值全部滤空时兜底保留最高分候选；`metadataFilter` 存在时按元数据精确筛选（JSONB 包含匹配） |
 | 重排 | `useRerank` 开启时调用百炼 `gte-rerank-v2` 对候选重排并取 `rerankTopN`；服务不可用时自动降级，不阻断问答 |
 | 提示词 | `rag/retriever.py` 在系统提示词中要求模型"依据参考资料作答，资料缺失时如实告知"，以抑制幻觉 |
 | 记忆 | `memory/conversation.py` 取最近 20 条消息作为上下文，控制 token 成本 |
 | 流式输出 | `api/routes/chat.py` 先发送 `citations` 事件（引用来源），再逐块发送 `token` 事件，最后发送 `done` 事件 |
+
+### 元数据提取与检索过滤
+
+文档上传时可启用元数据：按知识库模板（键/类型/说明）手动填值，或勾选"AI 自动填写"由大模型在后台处理任务中按键说明自动提取。
+
+| 环节 | 说明 |
+|------|------|
+| 模板 | 定义在 `knowledge_bases.metadataSchema`：`[{key, type, description, options}]`，type 支持 string / number / boolean / date / enum |
+| 提取 | `rag/metadata.py`：解析文本截断后调用 LLM 输出 JSON，三段容错解析 + 按键类型转换；失败返回空值不阻塞处理 |
+| 存储 | 值存于 `documents.metadata`，向量化时冗余写入每个 `chunks.metadata` |
+| 过滤 | 检索时 `retrieval_config.metadataFilter` 以 JSONB 包含匹配（`@>`）对向量/关键词双路召回统一过滤 |
+| 补录 | 网关 `PATCH /api/documents/:id/metadata` 可修改已处理文档的元数据，并同步刷新分块 |
 
 ---
 
@@ -225,7 +238,8 @@ ai-engine/
 │   │   ├── pipeline.py          # RAG pipeline: parse -> chunk -> embed -> store; retrieval orchestration
 │   │   ├── retriever.py         # Assembles the RAG prompt
 │   │   ├── fusion.py            # Multi-path recall fusion (RRF / weighted)
-│   │   └── reranker.py          # Reranking (DashScope gte-rerank)
+│   │   ├── reranker.py          # Reranking (DashScope gte-rerank)
+│   │   └── metadata.py          # LLM metadata extraction (per template key/type/description)
 │   ├── models/
 │   │   ├── embedding.py         # Embedding models (abstract base + OpenAI-compatible impl, Bailian by default)
 │   │   └── llm.py               # LLM factory function
@@ -255,7 +269,7 @@ file -> [parser] parse to text -> [splitter] chunk -> [embedding] batch vectoriz
 | Parsing | `rag/parser.py` | Routes by extension: PDF via PyMuPDF (keeps page markers), DOCX via python-docx, HTML via BeautifulSoup (strips script and style) |
 | Chunking | `rag/splitter.py` | LangChain recursive character splitter; prefers paragraph, sentence and space boundaries, with Chinese punctuation explicitly added to avoid splitting Chinese sentences |
 | Embedding | `models/embedding.py` | Calls an OpenAI-compatible Embedding API (Alibaba Cloud Model Studio by default) to convert chunks into 1536-dim vectors |
-| Storage | `vectorstore/pgvector.py` | Writes to the `chunks` table, which carries an HNSW index (see `scripts/init_pgvector.sql`) |
+| Storage | `vectorstore/pgvector.py` | Writes to the `chunks` table (document metadata stamped redundantly for retrieval filtering), which carries an HNSW index (see `scripts/init_pgvector.sql`) |
 
 ### Q&A flow
 
@@ -266,11 +280,23 @@ user question -> recall (vector / keyword / hybrid) -> (optional) rerank
 
 | Stage | Description |
 |-------|-------------|
-| Retrieval | Driven by each knowledge base's `retrievalConfig`: `mode` can be `vector` (default; cosine similarity with a threshold filter, default 0.7), `keyword` (PostgreSQL full-text search), or `hybrid` (dual-path recall fused via RRF or weighted scoring per `fusionMethod`); if the threshold filters everything out, the best candidate is kept as a fallback |
+| Retrieval | Driven by each knowledge base's `retrievalConfig`: `mode` can be `vector` (default; cosine similarity with a threshold filter, default 0.7), `keyword` (PostgreSQL full-text search), or `hybrid` (dual-path recall fused via RRF or weighted scoring per `fusionMethod`); if the threshold filters everything out, the best candidate is kept as a fallback; when `metadataFilter` is set, candidates are filtered by exact metadata match (JSONB containment) |
 | Reranking | When `useRerank` is on, candidates are reranked by Bailian `gte-rerank-v2` and truncated to `rerankTopN`; the service degrades gracefully on failure and never blocks Q&A |
 | Prompting | `rag/retriever.py` instructs the model to answer from references and admit when information is missing, suppressing hallucination |
 | Memory | `memory/conversation.py` uses the last 20 messages as context, controlling token cost |
 | Streaming | `api/routes/chat.py` emits a `citations` event first, then `token` events, then a final `done` event |
+
+### Metadata extraction and retrieval filtering
+
+Documents can carry metadata on upload: fill values manually against the knowledge base template (key/type/description), or tick "AI auto-fill" and let the LLM extract values from the document during the background processing task.
+
+| Stage | Description |
+|-------|-------------|
+| Template | Defined in `knowledge_bases.metadataSchema`: `[{key, type, description, options}]`; type supports string / number / boolean / date / enum |
+| Extraction | `rag/metadata.py`: truncates parsed text, calls the LLM for a JSON object, three-tier tolerant parsing plus per-type coercion; on failure returns empty values without blocking processing |
+| Storage | Values live in `documents.metadata` and are redundantly stamped onto every `chunks.metadata` during vectorization |
+| Filtering | At retrieval time `retrieval_config.metadataFilter` filters both recall paths by exact metadata match (JSONB containment, `@>`) |
+| Backfill | `PATCH /api/documents/:id/metadata` on the gateway updates metadata of processed documents and syncs their chunks |
 
 ---
 

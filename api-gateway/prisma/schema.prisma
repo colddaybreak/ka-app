@@ -34,6 +34,7 @@ model KnowledgeBase {
   embeddingModel  String   @default("text-embedding-v4") @map("embedding_model")
   chunkStrategy   Json     @default("{\"mode\":\"recursive\",\"chunkSize\":500,\"chunkOverlap\":50}") @map("chunk_strategy")
   retrievalConfig Json     @default("{\"topK\":5,\"similarityThreshold\":0.7,\"useRerank\":false}") @map("retrieval_config")
+  metadataSchema  Json?    @map("metadata_schema")
   userId          String   @map("user_id")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -46,17 +47,19 @@ model KnowledgeBase {
 }
 
 model Document {
-  id              String         @id @default(uuid())
-  knowledgeBaseId String         @map("knowledge_base_id")
-  filename        String
-  filePath        String         @map("file_path")
-  fileSize        Int            @map("file_size")
-  fileType        String         @map("file_type")
-  status          DocumentStatus @default(pending)
-  errorMessage    String?        @map("error_message")
-  chunkCount      Int            @default(0) @map("chunk_count")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  processedAt     DateTime?      @map("processed_at")
+  id                   String         @id @default(uuid())
+  knowledgeBaseId      String         @map("knowledge_base_id")
+  filename             String
+  filePath             String         @map("file_path")
+  fileSize             Int            @map("file_size")
+  fileType             String         @map("file_type")
+  status               DocumentStatus @default(pending)
+  errorMessage         String?        @map("error_message")
+  chunkCount           Int            @default(0) @map("chunk_count")
+  metadata             Json?          @map("metadata")
+  metadataAutoExtract  Boolean        @default(false) @map("metadata_auto_extract")
+  createdAt            DateTime       @default(now()) @map("created_at")
+  processedAt          DateTime?      @map("processed_at")
 
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
 

@@ -9,7 +9,7 @@ export default async function knowledgeBaseRoutes(app: FastifyInstance) {
 
   // POST /api/knowledge-bases — 创建知识库
   app.post('/', async (request, reply) => {
-    const { name, description, chunkStrategy, retrievalConfig } = request.body as any;
+    const { name, description, chunkStrategy, retrievalConfig, metadataSchema } = request.body as any;
     if (!name) return reply.code(400).send({ error: '请填写知识库名称' });
 
     const kb = await prisma.knowledgeBase.create({
@@ -19,6 +19,7 @@ export default async function knowledgeBaseRoutes(app: FastifyInstance) {
         userId: (request.user as any).id,
         chunkStrategy: chunkStrategy || { mode: 'recursive', chunkSize: 500, chunkOverlap: 50 },
         retrievalConfig: retrievalConfig || { topK: 5, similarityThreshold: 0.7, useRerank: false },
+        ...(metadataSchema && { metadataSchema }),
       },
     });
     return kb;
@@ -66,7 +67,7 @@ export default async function knowledgeBaseRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: '无权操作' });
     }
 
-    const { name, description, chunkStrategy, retrievalConfig } = request.body as any;
+    const { name, description, chunkStrategy, retrievalConfig, metadataSchema } = request.body as any;
     return prisma.knowledgeBase.update({
       where: { id },
       data: {
@@ -74,6 +75,7 @@ export default async function knowledgeBaseRoutes(app: FastifyInstance) {
         ...(description !== undefined && { description }),
         ...(chunkStrategy && { chunkStrategy }),
         ...(retrievalConfig && { retrievalConfig }),
+        ...(metadataSchema !== undefined && { metadataSchema }),
       },
     });
   });

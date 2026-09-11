@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import type { MultipartFile } from '@fastify/multipart';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { writeFile, mkdir } from 'fs/promises';
@@ -24,8 +25,33 @@ export default async function documentRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: '无权操作' });
     }
 
-    const file = await request.file();
+    // 遍历 multipart parts：文件 + 可选 metadata(JSON 字符串) + autoExtract(布尔)
+    let file: MultipartFile | undefined;
+    let metadataRaw: string | undefined;
+    let autoExtract = false;
+    for await (const part of request.parts()) {
+      if (part.type === 'file') {
+        file = part;
+      } else if (part.fieldname === 'metadata') {
+        metadataRaw = String(part.value);
+      } else if (part.fieldname === 'autoExtract') {
+        autoExtract = part.value === 'true';
+      }
+    }
     if (!file) return reply.code(400).send({ error: '请选择文件' });
+
+    // 解析元数据：必须是合法 JSON 对象，否则拒绝
+    let metadata: any = null;
+    if (metadataRaw) {
+      try {
+        metadata = JSON.parse(metadataRaw);
+      } catch {
+        return reply.code(400).send({ error: 'metadata 必须为合法 JSON' });
+      }
+      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+        return reply.code(400).send({ error: 'metadata 必须为 JSON 对象' });
+      }
+    }
 
     const ext = file.filename.split('.').pop()?.toLowerCase();
     if (!['pdf', 'txt', 'md', 'docx', 'html'].includes(ext || '')) {
@@ -49,6 +75,8 @@ export default async function documentRoutes(app: FastifyInstance) {
         fileSize: buffer.length,
         fileType: ext!,
         status: 'pending',
+        metadata: metadata || undefined,
+        metadataAutoExtract: autoExtract,
       },
     });
 
@@ -107,6 +135,32 @@ export default async function documentRoutes(app: FastifyInstance) {
     }
 
     return prisma.document.findUnique({ where: { id: documentId } });
+  });
+
+  // PATCH /api/documents/:documentId/metadata — 补充/修改文档元数据
+  app.patch('/:documentId/metadata', async (request, reply) => {
+    const { documentId } = request.params as any;
+    const userId = (request.user as any).id;
+    const role = (request.user as any).role;
+    const { metadata } = request.body as any;
+
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return reply.code(400).send({ error: 'metadata 必须为 JSON 对象' });
+    }
+
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, knowledgeBase: { userId: role === 'admin' ? undefined : userId } },
+    });
+    if (!doc) return reply.code(404).send({ error: '文档不存在' });
+
+    // 已入库分块同步刷新元数据，保证检索过滤立即生效
+    try {
+      await proxyToAI(`/ai/documents/${documentId}/metadata`, { metadata }, 'PUT');
+    } catch (e) {
+      console.error('Failed to sync chunk metadata:', e);
+    }
+
+    return prisma.document.update({ where: { id: documentId }, data: { metadata } });
   });
 
   // DELETE /api/documents/:documentId — 删除文档
