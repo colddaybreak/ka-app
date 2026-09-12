@@ -1,0 +1,8 @@
+# Prisma hashes migration files byte-for-byte (sha256 of the file on disk).
+# With core.autocrlf=true on Windows, migrations get rewritten to CRLF on
+# checkout, so the hash later differs on a Linux deploy and Prisma reports
+# "migration modified after it was applied". Normalize text files to LF.
+* text=auto eol=lf
+
+# Windows-specific scripts keep CRLF so they stay runnable there.
+*.ps1 text eol=crlf

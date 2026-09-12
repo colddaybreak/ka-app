@@ -32,7 +32,7 @@ api-gateway/
 │   └── routes/
 │       ├── auth.routes.ts           # 注册 / 登录 / 获取当前用户
 │       ├── knowledge-base.routes.ts # 知识库 CRUD
-│       ├── document.routes.ts       # 文件上传 / 状态 / 删除
+│       ├── document.routes.ts       # 文件上传（含元数据）/ 元数据修改 / 状态 / 删除
 │       ├── conversation.routes.ts   # 对话 CRUD + 流式提问
 │       └── dashboard.routes.ts      # 统计数据与趋势
 ├── prisma/
@@ -96,8 +96,8 @@ User ──< KnowledgeBase ──< Document
 | 表 | 关键字段 | 说明 |
 |----|----------|------|
 | `users` | email、passwordHash、role | 用户与角色 |
-| `knowledge_bases` | embeddingModel、chunkStrategy、retrievalConfig | 分块与检索配置以 JSON 存储，支持按知识库定制 |
-| `documents` | status、chunkCount | 处理状态机：pending -> processing -> done / failed |
+| `knowledge_bases` | embeddingModel、chunkStrategy、retrievalConfig、metadataSchema | 分块与检索配置以 JSON 存储，支持按知识库定制；metadataSchema 定义元数据模板（键/类型/说明） |
+| `documents` | status、chunkCount、metadata、metadataAutoExtract | 处理状态机：pending -> processing -> done / failed；metadata 为文档元数据值，metadataAutoExtract 标记是否由 AI 自动提取 |
 | `conversations` | systemPrompt、modelConfig | 每个对话绑定一个知识库 |
 | `messages` | role、citations、tokenUsage | citations 存储引用来源，供前端展示 |
 
@@ -117,9 +117,10 @@ User ──< KnowledgeBase ──< Document
 | `GET` | `/api/knowledge-bases/:id` | 知识库详情（含文档） | 是 |
 | `PUT` | `/api/knowledge-bases/:id` | 更新知识库 | 是 |
 | `DELETE` | `/api/knowledge-bases/:id` | 删除知识库（级联删除） | 是 |
-| `POST` | `/api/documents/upload/:knowledgeBaseId` | 上传文档 | 是 |
+| `POST` | `/api/documents/upload/:knowledgeBaseId` | 上传文档（multipart 可携带 `metadata` JSON 与 `autoExtract` 标志） | 是 |
 | `GET` | `/api/documents/knowledge-base/:kbId` | 文档列表 | 是 |
 | `GET` | `/api/documents/:id/status` | 处理状态（前端轮询） | 是 |
+| `PATCH` | `/api/documents/:id/metadata` | 补充/修改文档元数据（同步刷新已入库分块） | 是 |
 | `DELETE` | `/api/documents/:id` | 删除文档及其向量 | 是 |
 | `POST` | `/api/conversations` | 创建对话 | 是 |
 | `GET` | `/api/conversations` | 对话列表 | 是 |
@@ -224,7 +225,7 @@ api-gateway/
 │   └── routes/
 │       ├── auth.routes.ts           # register / login / current user
 │       ├── knowledge-base.routes.ts # knowledge base CRUD
-│       ├── document.routes.ts       # file upload / status / delete
+│       ├── document.routes.ts       # file upload (with metadata) / metadata update / status / delete
 │       ├── conversation.routes.ts   # conversation CRUD + streaming chat
 │       └── dashboard.routes.ts      # statistics and trends
 ├── prisma/
@@ -288,8 +289,8 @@ User ──< KnowledgeBase ──< Document
 | Table | Key fields | Notes |
 |-------|-----------|-------|
 | `users` | email, passwordHash, role | Users and roles |
-| `knowledge_bases` | embeddingModel, chunkStrategy, retrievalConfig | Chunking and retrieval config stored as JSON, customizable per knowledge base |
-| `documents` | status, chunkCount | State machine: pending -> processing -> done / failed |
+| `knowledge_bases` | embeddingModel, chunkStrategy, retrievalConfig, metadataSchema | Chunking and retrieval config stored as JSON, customizable per knowledge base; metadataSchema defines the metadata template (key/type/description) |
+| `documents` | status, chunkCount, metadata, metadataAutoExtract | State machine: pending -> processing -> done / failed; metadata holds document metadata values, metadataAutoExtract marks AI-assisted extraction |
 | `conversations` | systemPrompt, modelConfig | Each conversation binds to one knowledge base |
 | `messages` | role, citations, tokenUsage | citations store sources for frontend display |
 
@@ -309,9 +310,10 @@ The vector table `chunks` is not managed by Prisma (Prisma does not support the 
 | `GET` | `/api/knowledge-bases/:id` | Detail (with documents) | Yes |
 | `PUT` | `/api/knowledge-bases/:id` | Update knowledge base | Yes |
 | `DELETE` | `/api/knowledge-bases/:id` | Delete (cascade) | Yes |
-| `POST` | `/api/documents/upload/:knowledgeBaseId` | Upload document | Yes |
+| `POST` | `/api/documents/upload/:knowledgeBaseId` | Upload document (multipart may carry `metadata` JSON and `autoExtract` flag) | Yes |
 | `GET` | `/api/documents/knowledge-base/:kbId` | List documents | Yes |
 | `GET` | `/api/documents/:id/status` | Processing status (polled) | Yes |
+| `PATCH` | `/api/documents/:id/metadata` | Set/update document metadata (syncs chunk metadata) | Yes |
 | `DELETE` | `/api/documents/:id` | Delete document and vectors | Yes |
 | `POST` | `/api/conversations` | Create conversation | Yes |
 | `GET` | `/api/conversations` | List conversations | Yes |

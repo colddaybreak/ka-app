@@ -1,10 +1,12 @@
 # ai-engine/app/api/routes/documents.py
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.api.deps import verify_internal_token
 from app.database import get_db, engine
 from app.rag.pipeline import RAGPipeline
+from app.rag.parser import DocumentParser
+from app.rag.metadata import extract_metadata
 from app.vectorstore.pgvector import PgVectorStore
 from app.config import settings
 from pathlib import Path
@@ -27,7 +29,8 @@ async def process_document(
     doc = db.execute(
         text(
             """
-        SELECT d.file_path, d.knowledge_base_id, kb.chunk_strategy
+        SELECT d.file_path, d.knowledge_base_id, kb.chunk_strategy,
+               d.metadata, d.metadata_auto_extract, kb.metadata_schema
         FROM documents d
         JOIN knowledge_bases kb ON d.knowledge_base_id = kb.id
         WHERE d.id = :doc_id
@@ -51,6 +54,15 @@ async def process_document(
     if isinstance(chunk_strategy, str):
         chunk_strategy = json.loads(chunk_strategy)
 
+    # 元数据与模板（psycopg2 对 jsonb 通常直接给 dict）
+    metadata = doc[3] or {}
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    auto_extract = bool(doc[4])
+    metadata_schema = doc[5] or []
+    if isinstance(metadata_schema, str):
+        metadata_schema = json.loads(metadata_schema)
+
     # 拼接文件完整路径：网关保存的是绝对路径（兼容 Windows 反斜杠）；
     # 历史数据中的相对路径以 api-gateway 目录为基准（upload_dir 指向其下的 uploads）
     file_path = doc[0].replace("\\", "/")
@@ -64,6 +76,9 @@ async def process_document(
         str(doc[1]),  # knowledge_base_id
         file_path,
         chunk_strategy,
+        metadata,
+        auto_extract,
+        metadata_schema,
     )
 
     return {"status": "processing", "document_id": document_id}
@@ -74,11 +89,35 @@ def _process_document_task(
     knowledge_base_id: str,
     file_path: str,
     chunk_strategy: dict,
+    metadata: dict = None,
+    auto_extract: bool = False,
+    metadata_schema: list = None,
 ):
-    """后台任务：文档解析 -> 分块 -> 向量化"""
+    """后台任务：解析 -> (可选)LLM 提取元数据 -> 分块 -> 向量化"""
     try:
+        # 先解析一次文本：供元数据提取复用，避免重复解析
+        text = DocumentParser().parse(file_path)
+
+        if auto_extract:
+            extracted = extract_metadata(text, metadata_schema or [])
+            if extracted:
+                metadata = {**(metadata or {}), **extracted}
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "UPDATE documents SET metadata = :m::jsonb "
+                            "WHERE id = :doc_id"
+                        ),
+                        {"m": json.dumps(metadata), "doc_id": document_id},
+                    )
+
         chunk_count = rag_pipeline.process_document(
-            document_id, knowledge_base_id, file_path, chunk_strategy
+            document_id,
+            knowledge_base_id,
+            file_path,
+            chunk_strategy,
+            text=text,
+            metadata=metadata,
         )
         # 更新状态
         with engine.begin() as conn:
@@ -132,4 +171,20 @@ async def delete_document_vectors(document_id: str):
     """删除文档的所有向量数据（删除文档时由 Node.js 调用）"""
     vector_store = PgVectorStore()
     vector_store.delete_by_document(document_id)
+    return {"success": True}
+
+
+@router.put("/{document_id}/metadata")
+async def update_document_metadata(document_id: str, request: Request):
+    """同步刷新文档分块的元数据（网关 PATCH 元数据后调用，保证过滤立即生效）"""
+    body = await request.json()
+    metadata = body.get("metadata")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE chunks SET metadata = :meta::jsonb "
+                "WHERE document_id = :doc_id"
+            ),
+            {"meta": json.dumps(metadata or {}), "doc_id": document_id},
+        )
     return {"success": True}

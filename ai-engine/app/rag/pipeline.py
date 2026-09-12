@@ -20,10 +20,13 @@ class RAGPipeline:
         knowledge_base_id: str,
         file_path: str,
         chunk_strategy: dict,
+        text: str | None = None,
+        metadata: dict | None = None,
     ):
-        """完整的文档处理流水线"""
+        """完整的文档处理流水线（text/metadata 由调用方预解析时传入，避免重复解析）"""
         # 1. 解析
-        text = self.parser.parse(file_path)
+        if text is None:
+            text = self.parser.parse(file_path)
 
         # 2. 分块
         splitter = TextSplitter(
@@ -41,7 +44,7 @@ class RAGPipeline:
 
         # 5. 存储
         self.vector_store.insert_chunks(
-            document_id, knowledge_base_id, chunks, embeddings
+            document_id, knowledge_base_id, chunks, embeddings, metadata=metadata
         )
 
         return len(chunks)
@@ -56,7 +59,10 @@ class RAGPipeline:
         # 纯关键词召回：ts_rank 与余弦相似度不可比，不做阈值过滤
         if mode == "keyword":
             results = self.vector_store.keyword_search(
-                query=query, knowledge_base_id=knowledge_base_id, top_k=top_k
+                query=query,
+                knowledge_base_id=knowledge_base_id,
+                top_k=top_k,
+                metadata_filter=retrieval_config.get("metadataFilter"),
             )
         else:
             query_embedding = self.embedding_model.embed_query(query)
@@ -64,6 +70,7 @@ class RAGPipeline:
                 query_embedding=query_embedding,
                 knowledge_base_id=knowledge_base_id,
                 top_k=top_k,
+                metadata_filter=retrieval_config.get("metadataFilter"),
             )
             threshold = retrieval_config.get(
                 "similarityThreshold", settings.default_similarity_threshold
@@ -75,7 +82,10 @@ class RAGPipeline:
                     r for r in vector_results if r["similarity"] >= threshold
                 ]
                 keyword_results = self.vector_store.keyword_search(
-                    query=query, knowledge_base_id=knowledge_base_id, top_k=top_k
+                    query=query,
+                    knowledge_base_id=knowledge_base_id,
+                    top_k=top_k,
+                    metadata_filter=retrieval_config.get("metadataFilter"),
                 )
                 if retrieval_config.get("fusionMethod") == "weighted":
                     weights = retrieval_config.get("weights", {})

@@ -1,6 +1,7 @@
 # ai-engine/app/vectorstore/pgvector.py
 from sqlalchemy import text
 from app.database import engine
+import json
 
 
 class PgVectorStore:
@@ -10,8 +11,10 @@ class PgVectorStore:
         knowledge_base_id: str,
         chunks: list[dict],
         embeddings: list[list[float]],
+        metadata: dict = None,
     ):
-        """批量插入分块和向量"""
+        """批量插入分块和向量（metadata 为文档级元数据，冗余到每个分块）"""
+        meta = json.dumps(metadata or {})
         with engine.begin() as conn:
             for chunk, embedding in zip(chunks, embeddings):
                 conn.execute(
@@ -28,7 +31,7 @@ class PgVectorStore:
                         "kb_id": knowledge_base_id,
                         "chunk_index": chunk["index"],
                         "content": chunk["content"],
-                        "metadata": "{}",
+                        "metadata": meta,
                         "embedding": str(embedding),
                     },
                 )
@@ -38,27 +41,37 @@ class PgVectorStore:
         query_embedding: list[float],
         knowledge_base_id: str,
         top_k: int = 5,
+        metadata_filter: dict = None,
     ) -> list[dict]:
-        """余弦相似度搜索，返回按相似度降序的 top_k 候选（阈值过滤由调用方负责）"""
+        """余弦相似度搜索，返回按相似度降序的 top_k 候选（阈值过滤由调用方负责）
+
+        metadata_filter 为 JSONB 包含过滤（如 {"department": "HR"}），无则不加条件。
+        """
+        filter_clause = (
+            " AND c.metadata @> :filter::jsonb" if metadata_filter else ""
+        )
+        params: dict = {
+            "query": str(query_embedding),
+            "kb_id": knowledge_base_id,
+            "top_k": top_k,
+        }
+        if metadata_filter:
+            params["filter"] = json.dumps(metadata_filter)
         with engine.connect() as conn:
             result = conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT c.id, c.content, c.metadata, c.document_id,
                        d.filename as document_name,
                        1 - (c.embedding <=> :query::vector) as similarity
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.id
-                WHERE c.knowledge_base_id = :kb_id
+                WHERE c.knowledge_base_id = :kb_id{filter_clause}
                 ORDER BY c.embedding <=> :query::vector
                 LIMIT :top_k
             """
                 ),
-                {
-                    "query": str(query_embedding),
-                    "kb_id": knowledge_base_id,
-                    "top_k": top_k,
-                },
+                params,
             )
             rows = result.fetchall()
             return [
@@ -78,28 +91,38 @@ class PgVectorStore:
         query: str,
         knowledge_base_id: str,
         top_k: int = 5,
+        metadata_filter: dict = None,
     ) -> list[dict]:
-        """关键词全文检索（ts_rank 排序），返回结构与 search() 一致"""
+        """关键词全文检索（ts_rank 排序），返回结构与 search() 一致
+
+        metadata_filter 为 JSONB 包含过滤，无则不加条件。
+        """
+        filter_clause = (
+            " AND c.metadata @> :filter::jsonb" if metadata_filter else ""
+        )
+        params: dict = {
+            "query": query,
+            "kb_id": knowledge_base_id,
+            "top_k": top_k,
+        }
+        if metadata_filter:
+            params["filter"] = json.dumps(metadata_filter)
         with engine.connect() as conn:
             result = conn.execute(
                 text(
-                    """
+                    f"""
                 SELECT c.id, c.content, c.metadata, c.document_id,
                        d.filename as document_name,
                        ts_rank(c.tsv, plainto_tsquery('simple', :query)) as rank
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.id
-                WHERE c.knowledge_base_id = :kb_id
+                WHERE c.knowledge_base_id = :kb_id{filter_clause}
                   AND c.tsv @@ plainto_tsquery('simple', :query)
                 ORDER BY rank DESC
                 LIMIT :top_k
             """
                 ),
-                {
-                    "query": query,
-                    "kb_id": knowledge_base_id,
-                    "top_k": top_k,
-                },
+                params,
             )
             rows = result.fetchall()
             return [

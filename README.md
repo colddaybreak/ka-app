@@ -13,6 +13,7 @@ KA App 是一个基于 RAG（Retrieval-Augmented Generation，检索增强生成
 | 用户认证 | 注册、登录、JWT 令牌，`admin` 与 `user` 两种角色 |
 | 知识库管理 | 支持创建多个知识库，每个知识库可独立配置分块策略与检索参数 |
 | 文档处理 | 支持 PDF、TXT、Markdown、DOCX、HTML，上传后自动解析、分块、向量化 |
+| 元数据管理 | 知识库级模板定义键/类型/说明，上传时手动填写或由大模型按说明自动提取，检索可按元数据精确筛选，支持处理后补录 |
 | 混合检索 | 向量 / 关键词 / 混合三种召回模式，RRF 或加权融合，可选 Rerank 模型重排，相似度阈值按知识库配置 |
 | 流式对话 | 基于 SSE 的逐字输出，回答附带引用来源（文档名与相似度） |
 | 对话记忆 | 滑动窗口机制，保留最近 20 条消息作为上下文 |
@@ -176,8 +177,8 @@ pnpm dev                      # 启动于 :5173，开发服务器自动代理 /a
 ### 文档上传
 
 ```
-用户上传 -> 网关保存文件并创建 Document 记录
-         -> 通知 AI 引擎 -> 后台任务：解析 -> 分块 -> 向量化 -> 写入 chunks 表
+用户上传 -> 网关保存文件并创建 Document 记录（可携带元数据，或由 AI 引擎后台按模板自动提取）
+         -> 通知 AI 引擎 -> 后台任务：解析 -> 分块 -> 向量化 -> 写入 chunks 表（冗余标记元数据）
          -> 前端轮询状态直至处理完成
 ```
 
@@ -225,6 +226,7 @@ KA App is a knowledge base Q&A platform based on RAG (Retrieval-Augmented Genera
 | Authentication | Registration, login, JWT tokens, `admin` and `user` roles |
 | Knowledge Bases | Multiple knowledge bases, each with independent chunking and retrieval configuration |
 | Document Processing | PDF, TXT, Markdown, DOCX and HTML, automatically parsed, chunked and vectorized |
+| Metadata Management | Per-knowledge-base template (key/type/description), manual entry or LLM auto-extraction on upload, exact metadata filtering at retrieval, backfill after processing |
 | Hybrid Retrieval | Vector / keyword / hybrid recall, RRF or weighted fusion, optional rerank model, per-knowledge-base similarity threshold |
 | Streaming Chat | SSE token-by-token output with citation sources (document name and similarity) |
 | Conversation Memory | Sliding window retaining the last 20 messages as context |
@@ -389,7 +391,10 @@ Each service ships with a `.env.example` template; copy it to `.env` and adjust:
 
 ```
 User uploads -> gateway stores the file and creates a Document record
-             -> notifies AI engine -> background task: parse -> chunk -> embed -> write to chunks table
+             (optionally with metadata, or auto-extracted by the AI engine
+             in the background task per the knowledge base template)
+             -> notifies AI engine -> background task: parse -> chunk -> embed
+             -> writes to chunks table (metadata stamped redundantly)
              -> frontend polls status until processing completes
 ```
 
